@@ -1,0 +1,23 @@
+{
+  "store_id": "ST1008",
+  "store_name": "Brigade Road Bangalore",
+  "open_hours": {"open": "10:00", "close": "22:00"},
+  "cameras": [
+    {"camera_id": "CAM_1", "type": "entry", "file": "CAM 1.mp4"},
+    {"camera_id": "CAM_2", "type": "entry", "file": "CAM 2.mp4"},
+    {"camera_id": "CAM_3", "type": "floor", "file": "CAM 3.mp4"},
+    {"camera_id": "CAM_4", "type": "floor", "file": "CAM 4.mp4"},
+    {"camera_id": "CAM_5", "type": "billing", "file": "CAM 5.mp4"}
+  ],
+  "zones": [
+    {"zone_id": "ENTRY", "x1": 0, "y1": 0, "x2": 200, "y2": 1080},
+    {"zone_id": "SKIN", "x1": 200, "y1": 0, "x2": 400, "y2": 400},
+    {"zone_id": "LIP", "x1": 400, "y1": 0, "x2": 600, "y2": 400},
+    {"zone_id": "EYE", "x1": 600, "y1": 0, "x2": 800, "y2": 400},
+    {"zone_id": "FOUNDATION", "x1": 200, "y1": 400, "x2": 500, "y2": 700},
+    {"zone_id": "SKINCARE", "x1": 500, "y1": 400, "x2": 800, "y2": 700},
+    {"zone_id": "HAIRCARE", "x1": 200, "y1": 700, "x2": 500, "y2": 1080},
+    {"zone_id": "FRAGRANCE", "x1": 500, "y1": 700, "x2": 800, "y2": 1080},
+    {"zone_id": "BILLING", "x1": 800, "y1": 0, "x2": 1920, "y2": 1080}
+  ]
+}

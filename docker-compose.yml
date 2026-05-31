@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: apex_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://apex_user:apex_pass@postgres:5432/apex_db
+      - REDIS_URL=redis://redis:6379
+      - DEBUG=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./pipeline:/app/pipeline
+      - ./data:/app/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: apex_postgres
+    environment:
+      POSTGRES_USER: apex_user
+      POSTGRES_PASSWORD: apex_pass
+      POSTGRES_DB: apex_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apex_user -d apex_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: apex_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
