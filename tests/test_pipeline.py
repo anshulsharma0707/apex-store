@@ -126,15 +126,11 @@ def test_reentry_detection():
     r1 = tracker.update([((100, 100, 200, 300), 0.9)], now)
     visitor_id = r1[0]["visitor_id"]
 
-    # Force exit
-    tracker.exited_visitors[visitor_id] = now
-
-    # Re-entry — manually inject same visitor_id
+    # Re-entry — match tracker.py format (exit_time, last_centroid)
     tracker2 = ReIDTracker(reentry_window_sec=300)
-    tracker2.exited_visitors[visitor_id] = now
+    tracker2.exited_visitors[visitor_id] = (now, (150.0, 200.0))
 
     r2 = tracker2.update([((100, 100, 200, 300), 0.9)], now + timedelta(seconds=60))
-    # New track created — check re-entry logic works
     assert len(r2) == 1
 
 

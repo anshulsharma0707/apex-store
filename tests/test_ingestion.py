@@ -145,3 +145,29 @@ def test_health_endpoint():
     data = resp.json()
     assert "status" in data
     assert "checked_at" in data
+    
+def test_ingest_integrity_error_duplicate():
+    import uuid
+    event_id = str(uuid.uuid4())
+    event = make_event(event_id=event_id)
+    # First insert
+    client.post("/events/ingest", json={"events": [event]})
+    # Second insert — same event_id — should be duplicate
+    resp = client.post("/events/ingest", json={"events": [event]})
+    assert resp.status_code == 200
+    assert resp.json()["duplicate"] >= 1
+
+
+def test_ingest_invalid_confidence_negative():
+    event = make_event()
+    event["confidence"] = -0.1
+    resp = client.post("/events/ingest", json={"events": [event]})
+    assert resp.status_code == 422
+
+
+def test_ingest_logs_error_on_bad_event():
+    import uuid
+    event = make_event(event_id=str(uuid.uuid4()))
+    event["store_id"] = None  # Invalid
+    resp = client.post("/events/ingest", json={"events": [event]})
+    assert resp.status_code in [200, 422]

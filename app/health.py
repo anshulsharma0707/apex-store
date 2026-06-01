@@ -3,6 +3,7 @@ from sqlalchemy import func
 from app.database import EventDB
 from app.models import HealthResponse, StoreHealth
 from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta
 
 
 # ─── Health Check ─────────────────────────────────────────────
@@ -31,7 +32,7 @@ def get_health(db: Session) -> HealthResponse:
         if not last_event:
             status = "NO_DATA"
             last_ts = None
-        elif last_event.timestamp < stale_threshold:
+        elif last_event.timestamp.replace(tzinfo=timezone.utc) < stale_threshold:
             status = "STALE_FEED"
             last_ts = last_event.timestamp
         else:

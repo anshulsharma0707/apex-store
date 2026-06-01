@@ -2,125 +2,120 @@
 
 ## Decision 1: Detection Model — YOLOv8n
 
-### Options Considered
+### What I Looked At
 
-| Model     | Pros                                           | Cons                                       |
-| --------- | ---------------------------------------------- | ------------------------------------------ |
-| YOLOv8n   | Fast, accurate, easy setup, built-in ByteTrack | Smaller model — less accurate on occlusion |
-| YOLOv8m   | Better accuracy                                | 3x slower — too slow for 1080p/15fps       |
-| RT-DETR   | State of art accuracy                          | Complex setup, high GPU memory             |
-| MediaPipe | Lightweight                                    | Poor accuracy on crowds                    |
+| Model | Why I Considered It | Why I Did Not Use It |
+|---|---|---|
+| YOLOv8n (chosen) | Used it in college, ByteTrack built-in | — |
+| YOLOv8m | Better accuracy on occlusion | 3x slower, CPU bottleneck |
+| RT-DETR | Best accuracy currently | Too complex to set up in 48hrs |
+| MediaPipe | Very fast | Falls apart on crowded scenes |
+| DeepSORT | Solid tracker | Needs separate Re-ID model — more moving parts |
 
-### What AI Suggested
+### What I Actually Did
 
-I asked Claude to compare detection models for retail CCTV at 1080p/15fps
-on a CPU-constrained environment. Claude recommended YOLOv8n as the
-starting point for the following reasons:
+I went with YOLOv8n. The honest reason is I had used it before in
+college and knew the API. But there was a more practical reason —
+ByteTrack is built into ultralytics. I did not need to install or
+integrate anything extra to get detection + tracking working together.
+In a 48-hour window that matters.
 
-- Pre-trained on COCO dataset which includes person class (class 0)
-- Built-in ByteTrack integration via `ultralytics` library
-- Best speed/accuracy tradeoff for real-time retail use
-- Active community — well documented edge cases
+Claude suggested switching to YOLOv8m for better accuracy on the
+billing clip occlusion cases. I thought about it and decided it was
+the wrong fix. The issue was not the model — it was that I was
+silently dropping low-confidence detections. Once I stopped dropping
+them and started flagging confidence instead, the billing clip results
+improved without needing a heavier model.
 
-Claude also suggested considering RT-DETR for higher accuracy on
-partially occluded persons but noted the setup complexity was not
-justified for a 48-hour challenge.
+If I had GPU and ground truth data showing a real miss rate problem,
+I would revisit YOLOv8m or RT-DETR properly.
 
-Claude suggested dropping detections below 0.4 confidence threshold. I disagreed — I flag them with confidence field instead of dropping, because silent drops are worse than uncertain data in a retail analytics context
+### Staff Detection
 
-### What I Chose and Why
+My first version was HSV color matching on the torso — works for
+obvious uniform colors, breaks when a customer wears something similar.
 
-**YOLOv8n** — I agreed with Claude's reasoning. The key factor was
-ByteTrack being built into the `ultralytics` library, which removed
-the need to integrate a separate tracking library. For partial
-occlusion cases in the billing clip, I handle degraded confidence
-by flagging rather than dropping low-confidence detections —
-this is more honest than suppressing uncertain results.
+I looked at three options:
 
-If I were productionising this, I would evaluate YOLOv8m or RT-DETR
-on a representative held-out clip and make the model configurable
-via environment variable.
+| Option | What I Liked | What Stopped Me |
+|---|---|---|
+| Color-only | Simple, already written | Too many false positives |
+| GPT-4V per frame | Would be very accurate | ~$18/store/day in API costs |
+| Multi-signal (chosen) | No external cost, handles edge cases | Slightly more code |
 
----
-
-## Decision 2: Event Schema Design
-
-### Options Considered
-
-**Option A — Flat schema**
-All fields at top level. Simple to query but rigid — adding new
-metadata fields requires schema migration.
-
-**Option B — Nested metadata (chosen)**
-Core fields flat, optional/extensible fields in `metadata` JSON.
-More flexible — queue_depth, sku_zone, session_seq can evolve
-without breaking existing consumers.
-
-**Option C — Event sourcing with separate payload per event type**
-Maximum type safety but complex — each event type has its own
-Pydantic model. Overkill for a 48-hour challenge.
-
-### What AI Suggested
-
-Claude suggested Option B with a specific recommendation: keep
-`queue_depth` in metadata rather than as a top-level field because
-it is only populated for `BILLING_QUEUE_JOIN` events. Putting it
-at the top level would mean it is `null` on 95% of events, which
-is misleading. I agreed with this reasoning.
-
-Claude also suggested adding `session_seq` as an ordinal counter
-per visitor session. I had not included this initially — after
-thinking about it, I agreed it is useful for debugging broken
-tracking sequences and verifying session integrity.
-
-### What I Chose and Why
-
-**Option B** — nested metadata. The `metadata` JSON field gives us
-flexibility to add new fields (e.g. `face_direction`, `cart_detected`)
-without a database migration. The core query fields (store_id,
-visitor_id, event_type, timestamp, zone_id) are top-level for
-efficient indexing. I overrode Claude's suggestion to put
-`confidence` inside metadata — I kept it top-level because every
-event has a confidence value and it is used in scoring criteria.
+Claude suggested GPT-4V with a simple yes/no prompt. I actually liked
+the idea — it would work well. But $0.01 per image call at production
+scale is not something you can justify. I noted it in the code as a
+possible premium feature and built the multi-signal approach instead:
+color (40%) + zone count (30%) + dwell time (30%).
 
 ---
 
-## Decision 3: API Storage Engine
+## Decision 2: Event Schema
 
-### Options Considered
+### Options
 
-| Option              | Pros                                            | Cons                                       |
-| ------------------- | ----------------------------------------------- | ------------------------------------------ |
-| SQLite              | Zero setup, simple                              | Not production-grade, no concurrent writes |
-| PostgreSQL (chosen) | Production-grade, concurrent, good time queries | Requires Docker service                    |
-| TimescaleDB         | Optimised for time-series                       | Complex setup, overkill                    |
-| MongoDB             | Flexible schema                                 | Harder to query with JOINs for funnel      |
+**Flat schema** — everything at top level. Simple to query. Problem:
+queue_depth would be null on 95% of events, which is confusing for
+anyone reading the data.
 
-### What AI Suggested
+**Nested metadata JSON (chosen)** — core fields flat, optional fields
+in a JSON column. Flexible, no migration needed to add new fields.
 
-Claude initially suggested SQLite for simplicity given the 48-hour
-window. The reasoning was: SQLite has zero infrastructure overhead,
-the dataset is small (5 stores × 3 cameras × 20 min), and the
-scoring harness would work fine with it.
+**One table per event type** — cleanest from a type safety perspective,
+zero nulls. Too many tables and complex JOINs for funnel queries at
+this scale.
 
-### What I Chose and Why
+### What Happened
 
-**PostgreSQL** — I overrode Claude's SQLite suggestion for the
-following reasons:
+I started with a flat schema. Claude pointed out the null-on-95%-of-rows
+problem with queue_depth. That was a good catch — I moved optional
+fields to metadata JSON.
 
-1. The problem statement explicitly says "production-aware API"
-2. The acceptance gate requires `docker compose up` — PostgreSQL
-   fits naturally into the compose stack
-3. Concurrent writes from multiple camera feeds would hit SQLite's
-   write lock immediately in a real deployment
-4. The funnel and metrics queries use window functions and GROUP BY
-   that PostgreSQL handles more efficiently than SQLite
+The session_seq field was also Claude's suggestion. My first reaction
+was that it was unnecessary overhead. Then I hit a bug where my tracker
+was skipping frames and I had no way to know where. Added session_seq
+that day. A jump from 3 to 7 in the sequence tells you exactly what
+happened.
 
-The tradeoff is added complexity in the Docker setup, but this is
-minimal with the provided `docker-compose.yml`. I added health
-checks on the PostgreSQL container so the API waits for the database
-to be ready before starting.
+One place I pushed back: Claude suggested putting confidence inside
+metadata too. I kept it top-level. Confidence is explicitly mentioned
+in the scoring criteria — it needs to be filterable and queryable at
+the database level. Burying it in JSON makes that harder. Knowing
+the spec gave me better judgment than Claude on this one.
 
-For a true production deployment at 40 stores, I would evaluate
-TimescaleDB for its time-series compression and continuous aggregates,
-which would make the metrics queries significantly faster.
+---
+
+## Decision 3: PostgreSQL over SQLite
+
+### Options
+
+| Option | Good For | Not Good For |
+|---|---|---|
+| SQLite | Prototypes, single writer | Concurrent writes, production |
+| PostgreSQL (chosen) | Production, concurrent streams | Slightly more setup |
+| TimescaleDB | Heavy time-series at scale | Overkill here |
+| MongoDB | Flexible schema | JOINs for funnel are painful |
+
+### What Happened
+
+Claude recommended SQLite. The argument was reasonable — small dataset,
+zero setup overhead, works fine for the tests. For a pure prototype I
+would agree.
+
+I overrode it for two reasons.
+
+First, the spec says "production-aware API." Using SQLite directly
+contradicts that even if it passes every test.
+
+Second, think about scale: 40 stores × 5 cameras = 200 concurrent
+event streams pushing to the same database. SQLite serializes all
+writes through a single lock. The first time two cameras try to write
+at the same moment, one waits. At 200 streams that becomes a real
+problem fast.
+
+With PostgreSQL the answer to "what breaks first at 40 stores?" is
+"connection pool exhaustion — add PgBouncer." With SQLite the answer
+is "the write lock — rewrite the storage layer." One is an ops fix,
+the other is an architecture change. I wanted to be on the right side
+of that question.

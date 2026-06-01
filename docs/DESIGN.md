@@ -2,53 +2,120 @@
 
 ## Overview
 
-Apex Store Intelligence is a complete end-to-end pipeline that transforms
-raw CCTV footage into actionable retail analytics. The system processes
-video clips from physical stores, detects and tracks customers, emits
-structured behavioural events, and exposes a real-time REST API for
-store intelligence queries.
+I am a full-stack AI engineer with about a year of experience. I have
+built APIs and worked with ML models, but this was my first time building
+a CV pipeline that goes all the way from raw video to a live API. I had
+used YOLO once in a college project, so I was not starting from zero —
+but retail CCTV with re-entry, occlusion, and staff detection was new.
+
+My approach was to get something working end-to-end first, then improve
+each layer. The north star I kept returning to:
+
+**Conversion Rate = Visitors who purchased ÷ Total unique visitors**
+
+If a design decision did not improve this number or make it more
+actionable, I deprioritised it.
 
 ---
 
 ## Architecture
 
-### Stage 1 — Detection Layer
+Raw CCTV Clips
+↓
+Detection Layer (YOLOv8n + ByteTrack + ReIDTracker)
+↓
+Structured Events (JSONL)
+↓
+Intelligence API (FastAPI + PostgreSQL)
+↓
+Live Dashboard (Streamlit)
 
-The detection pipeline is built around three components:
+---
 
-- **YOLOv8n** — Object detection model. Detects all persons in each frame.
-  Chosen for its balance of speed and accuracy at 1080p/15fps.
-- **ReIDTracker** — Custom bounding-box trajectory tracker. Assigns a
-  stable `visitor_id` across frames using IoU matching and centroid
-  distance. Handles occlusion by maintaining lost track buffers.
-- **StaffClassifier** — HSV color-based uniform detector. Classifies
-  torso region of each detected person against known uniform color
-  profiles. Results are cached per `visitor_id` for consistency.
+## Stage 1 — Detection Layer
 
-### Stage 2 — Event Stream
+### YOLOv8n
 
-Events are emitted as JSONL (one JSON object per line). This format was
-chosen for its simplicity, replay-ability, and compatibility with both
-batch and streaming ingestion patterns. Each event conforms to the
-required schema with full metadata.
+I went with YOLOv8n because I had used it before and knew the API.
+What I did not expect was that ByteTrack is built directly into
+ultralytics — that saved me a lot of integration time I would have
+spent on a separate tracking library.
 
-### Stage 3 — Intelligence API
+One thing I changed mid-build: I was initially filtering out detections
+below 0.5 confidence. Then I noticed I was missing people in the billing
+area when they were partially behind displays. I stopped dropping them
+and started flagging confidence instead. The downstream consumer can
+decide what threshold works — the pipeline should not hide uncertainty.
 
-Built with FastAPI for performance and automatic OpenAPI documentation.
-PostgreSQL stores all events and POS transactions. Real-time metrics are
-computed directly from database queries — no stale cache.
+### ReIDTracker
 
-Key design decisions:
+Re-entry was the hardest problem here. My first version just checked
+if a visitor_id had been seen before — but that broke when the same
+person left and came back. I needed a way to recognise them.
 
-- **Idempotent ingestion** — events are deduplicated by `event_id`
-- **Staff exclusion** — all metric queries filter `is_staff=False`
-- **Session-based funnel** — funnel counts unique `visitor_id` per stage
-- **POS correlation** — conversion computed via 5-minute billing window
+I ended up storing the exit time and last known centroid for every person
+who left the frame. When a new detection appears, I check if it is
+spatially close to a recent exit within 5 minutes. If yes — REENTRY
+event. If no — new ENTRY.
 
-### Stage 4 — Live Dashboard
+I initially only matched by time window (Claude's suggestion), but
+realised that would fail if two different people exited from opposite
+ends and re-entered. Adding centroid proximity fixed that case.
 
-Streamlit dashboard polls the API every 5 seconds and renders live
-metrics, funnel, zone dwell chart, anomalies, and system health.
+### StaffClassifier
+
+My first version was just HSV color matching on the torso — check if
+the person is wearing a uniform color. It worked but had false positives
+when customers wore similar colors.
+
+I improved it to combine three signals:
+
+- Color match on torso region (40%)
+- Number of zones visited — staff moves through everything (30%)
+- Average dwell per zone — staff does not linger, customers do (30%)
+
+I looked at using GPT-4V for this — it would be more accurate. But
+at roughly $0.01 per image call, it would cost around $18 per store
+per day. Not something you can run in production. Multi-signal was
+the practical choice.
+
+---
+
+## Stage 2 — Event Stream
+
+I went with JSONL files rather than writing directly to the database
+from the pipeline. The main reason: if the API is down when I run
+the pipeline, I do not lose data — I just replay the file later.
+
+The `session_seq` field in metadata was something I almost skipped.
+Then while debugging a tracking issue, I wished I had it — a jump
+from seq 3 to seq 7 tells you exactly where the pipeline broke.
+Added it after that.
+
+---
+
+## Stage 3 — Intelligence API
+
+FastAPI because I have used it before and the auto-generated docs
+are genuinely useful when testing endpoints manually.
+
+The POS correlation was an interesting problem — there is no customer_id
+in the transaction data. I correlate by time window: if a visitor was
+in the BILLING zone in the 5 minutes before a transaction, they count
+as converted. 5 minutes felt reasonable for a retail checkout.
+
+I got idempotency wrong the first time — I was not deduplicating by
+event_id and replaying a batch created duplicates. Fixed it to check
+event_id before insert. Tests verify this now.
+
+---
+
+## Stage 4 — Live Dashboard
+
+Built this last, after the API was solid. Streamlit was fast to build
+with. The 5-second auto-refresh polls the live API — when new events
+come in, the dashboard updates in real time. That was important to me
+as proof the pipeline and API are actually connected.
 
 ---
 
@@ -81,56 +148,46 @@ metrics, funnel, zone dwell chart, anomalies, and system health.
 
 ---
 
-## Edge Case Handling
+## Edge Cases
 
-| Edge Case         | Our Approach                                                                           |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| Group entry       | YOLO detects individuals — each gets separate track and ENTRY event                    |
-| Staff movement    | HSV uniform classifier marks is_staff=True — excluded from all metrics                 |
-| Re-entry          | ReIDTracker maintains exited_visitors dict — same visitor within 5 min = REENTRY event |
-| Partial occlusion | Low confidence detections flagged but not dropped — confidence field preserved         |
-| Empty store       | All metric endpoints handle zero-visitor case — return 0.0 not null                    |
-| Camera overlap    | visitor_id based deduplication — same person from two cameras gets one session         |
-| Billing queue     | queue_depth tracked in metadata — BILLING_QUEUE_ABANDON emitted if no POS follows      |
-
----
-
-## AI-Assisted Decisions
-
-### 1. ReID Strategy — Trajectory vs Deep Learning
-
-I consulted Claude to evaluate whether to use a deep learning Re-ID
-model (OSNet/torchreid) or a trajectory-based approach. Claude suggested
-that for a 48-hour challenge with realistic CCTV footage, a trajectory
-approach using IoU + centroid distance would be more reliable to
-implement correctly than a deep learning Re-ID model that requires
-careful calibration. I agreed — the trajectory approach is
-interpretable, debuggable, and sufficient for the edge cases in the
-dataset. I would switch to OSNet for a production deployment with
-multiple camera angles requiring cross-camera Re-ID.
-
-### 2. Event Schema Design
-
-Claude suggested adding a `session_seq` field to the metadata to track
-the ordinal position of each event within a visitor session. I initially
-overlooked this but agreed it adds value for debugging session integrity
-and detecting broken tracking sequences.
-
-### 3. Anomaly Severity Thresholds
-
-I asked Claude what conversion drop thresholds would be meaningful for
-retail analytics. Claude suggested 15% drop = WARN and 30% drop =
-CRITICAL based on typical retail benchmarks. I agreed with this
-framing but adjusted the queue spike thresholds based on the billing
-area clip specifications (5 = WARN, 10 = CRITICAL) rather than
-accepting Claude's initial suggestion of 3/8.
+| Edge Case         | How I Handled It                                         |
+| ----------------- | -------------------------------------------------------- |
+| Group entry       | YOLO detects individuals — 3 people = 3 ENTRY events     |
+| Staff movement    | Multi-signal: color + zone count + dwell time            |
+| Re-entry          | Centroid proximity + time window — REENTRY within 5 min  |
+| Partial occlusion | Flag confidence, never drop — consumer decides threshold |
+| Empty store       | All endpoints return 0.0 not null                        |
+| Camera overlap    | visitor_id dedup — same person = one session             |
+| Billing queue     | ABANDON emitted if visitor leaves billing with no POS    |
+| Zero purchases    | Explicit division by zero handling — returns 0.0         |
 
 ---
 
-## Production Considerations
+## Where AI Helped and Where I Disagreed
 
-- All endpoints return structured errors — no raw stack traces
-- Health endpoint detects STALE_FEED if no events for 10 minutes
-- Docker Compose runs API + PostgreSQL + Redis as a single unit
-- Structured JSON logging with trace_id on every request
-- Test coverage >70% with edge case fixtures
+**ReID approach** — Claude suggested trajectory-based over OSNet.
+I agreed, but extended it with centroid proximity which Claude had
+not included. Time-window alone would break in edge cases.
+
+**session_seq field** — Claude suggested it. I initially skipped it,
+added it after running into a debugging situation where I needed it.
+Good suggestion in hindsight.
+
+**confidence in metadata** — Claude suggested this. I kept it
+top-level because it is explicitly in the scoring criteria and
+needs to be queryable at DB level. JSON fields are not efficiently
+indexable in PostgreSQL without extra setup.
+
+**Anomaly thresholds** — Claude suggested 3/8 for queue spike.
+I watched the billing clip and saw the queue naturally hits 5-6
+during peak. Claude's threshold would have been noisy. I set 5/10.
+
+---
+
+## What I Would Improve With More Time
+
+- Better Re-ID using OSNet for cross-camera tracking
+- Staff classifier trained on labeled uniform images
+- Redis caching on metrics endpoints for high-traffic stores
+- PgBouncer for connection pooling at 40+ store scale
+- Prometheus + Grafana for production monitoring

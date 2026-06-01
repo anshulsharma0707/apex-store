@@ -164,3 +164,52 @@ def test_empty_store_no_crash():
     assert data["unique_visitors"] == 0
     assert data["conversion_rate"] == 0.0
     assert data["queue_depth"] == 0
+    
+    
+    # ─── Funnel Tests ─────────────────────────────────────────────
+def test_funnel_basic():
+    db = TestSessionLocal()
+    insert_event(db, "VIS_001", "ENTRY")
+    insert_event(db, "VIS_001", "ZONE_ENTER", zone_id="SKINCARE")
+    insert_event(db, "VIS_001", "ZONE_ENTER", zone_id="BILLING")
+    insert_transaction(db, offset_minutes=1)
+    db.close()
+
+    resp = client.get("/stores/STORE_BLR_002/funnel")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["stages"]) == 4
+    assert data["stages"][0]["stage"] == "Entry"
+    assert data["stages"][0]["count"] >= 1
+
+
+def test_funnel_empty_store():
+    resp = client.get("/stores/STORE_EMPTY_FUNNEL/funnel")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["stages"][0]["count"] == 0
+
+
+def test_heatmap_endpoint():
+    db = TestSessionLocal()
+    insert_event(db, "VIS_001", "ZONE_DWELL", zone_id="SKINCARE", dwell_ms=30000)
+    insert_event(db, "VIS_002", "ZONE_DWELL", zone_id="SKINCARE", dwell_ms=60000)
+    insert_event(db, "VIS_003", "ZONE_DWELL", zone_id="BILLING", dwell_ms=15000)
+    db.close()
+
+    resp = client.get("/stores/STORE_BLR_002/heatmap")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "zones" in data
+
+
+def test_health_with_store_data():
+    db = TestSessionLocal()
+    insert_event(db, "VIS_001", "ENTRY")
+    db.close()
+
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] in ["OK", "DEGRADED", "NO_DATA"]
+    assert "stores" in data

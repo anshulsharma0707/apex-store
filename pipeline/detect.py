@@ -60,9 +60,14 @@ def process_clip(
     clip_start_time: datetime,
     model_path: str = "yolov8n.pt",
     confidence_threshold: float = 0.5,
+    seen_visitors: set = None,  # Cross-camera deduplication
 ):
     print(f"\n🎬 Processing: {video_path}")
     print(f"   Store: {store_id} | Camera: {camera_id}")
+
+    # Cross-camera deduplication
+    if seen_visitors is None:
+        seen_visitors = set()
 
     # Load models
     model     = YOLO(model_path)
@@ -79,10 +84,10 @@ def process_clip(
     fps          = cap.get(cv2.CAP_PROP_FPS) or 15.0
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    frame_idx         = 0
-    zone_dwell_tracker: dict[str, dict] = {}  # visitor_id -> {zone, enter_time, last_dwell_emit}
-    billing_queue_visitors: set          = set()  # visitor_ids currently in billing queue
-    visitor_billing_entry_time: dict     = {}     # visitor_id -> time entered billing zone
+    frame_idx                    = 0
+    zone_dwell_tracker: dict[str, dict] = {}
+    billing_queue_visitors: set         = set()
+    visitor_billing_entry_time: dict    = {}
 
     print(f"   FPS: {fps} | Processing frames...")
 
@@ -91,21 +96,17 @@ def process_clip(
         if not ret:
             break
 
-        # Current timestamp from clip start + frame offset
         offset_sec = frame_idx / fps
         now        = clip_start_time + timedelta(seconds=offset_sec)
 
         # ── Run YOLO Detection ─────────────────────────────────
-        results    = model(frame, classes=[0], verbose=False)  # class 0 = person
+        results    = model(frame, classes=[0], verbose=False)
         detections = []
 
         for result in results:
             for box in result.boxes:
                 conf = float(box.conf[0])
                 bbox = tuple(box.xyxy[0].tolist())
-                # All detections included regardless of confidence threshold
-                # Low confidence events are flagged via confidence field, not dropped
-                # This is intentional — silent drops are worse than uncertain data
                 detections.append((bbox, conf))
 
         # ── Update Tracker ─────────────────────────────────────
@@ -128,18 +129,20 @@ def process_clip(
 
             # ── Emit Events ────────────────────────────────────
 
-            # NEW ENTRY
+            # NEW ENTRY — cross-camera dedup
             if status == "NEW":
-                emitter.emit(make_event(
-                    store_id=store_id,
-                    camera_id=camera_id,
-                    visitor_id=visitor_id,
-                    event_type="ENTRY",
-                    timestamp=now,
-                    is_staff=is_staff,
-                    confidence=conf,
-                    session_seq=seq,
-                ))
+                if visitor_id not in seen_visitors:
+                    seen_visitors.add(visitor_id)
+                    emitter.emit(make_event(
+                        store_id=store_id,
+                        camera_id=camera_id,
+                        visitor_id=visitor_id,
+                        event_type="ENTRY",
+                        timestamp=now,
+                        is_staff=is_staff,
+                        confidence=conf,
+                        session_seq=seq,
+                    ))
 
             # RE-ENTRY
             elif status == "REENTRY":
@@ -172,7 +175,6 @@ def process_clip(
                         ))
 
                 # ── Billing Queue Abandon Check ────────────────
-                # If visitor exits billing zone without a POS transaction → ABANDON
                 if visitor_id in billing_queue_visitors:
                     billing_queue_visitors.discard(visitor_id)
                     visitor_billing_entry_time.pop(visitor_id, None)
@@ -189,8 +191,8 @@ def process_clip(
                         queue_depth=get_billing_queue_depth(zone_dwell_tracker),
                     ))
 
-                # Clear zone dwell tracker
                 zone_dwell_tracker.pop(visitor_id, None)
+                seen_visitors.discard(visitor_id)  # Allow re-entry from other cameras
                 continue
 
             # ── Zone Events ────────────────────────────────────
@@ -199,7 +201,6 @@ def process_clip(
 
                 # Zone Enter
                 if not prev or prev["zone"] != zone_id:
-                    # Zone Exit for previous zone
                     if prev:
                         emitter.emit(make_event(
                             store_id=store_id,
@@ -231,7 +232,6 @@ def process_clip(
                     }
 
                     # ── Billing Queue Join ─────────────────────
-                    # Visitor enters billing zone while queue depth > 0
                     if zone_id == "BILLING" and not is_staff:
                         queue_depth = get_billing_queue_depth(zone_dwell_tracker)
                         if queue_depth > 0:
@@ -271,7 +271,6 @@ def process_clip(
 
         frame_idx += 1
 
-        # Progress every 500 frames
         if frame_idx % 500 == 0:
             print(f"   Frame {frame_idx} | Events: {emitter.count}")
 
