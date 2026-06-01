@@ -50,7 +50,6 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
             )
 
             db.add(db_event)
-            db.commit()
             accepted += 1
 
             logger.info(
@@ -77,6 +76,7 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
                 error=str(e)
             )
 
+    db.commit()  # ✅ single batch commit — loop ke baad
     return IngestResponse(
         accepted=accepted,
         rejected=rejected,

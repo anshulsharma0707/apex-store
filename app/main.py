@@ -86,6 +86,11 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 @app.post("/events/ingest", response_model=IngestResponse)
 def ingest(request: IngestRequest, db: Session = Depends(get_db)):
+    if len(request.events) > 500:                         
+        raise HTTPException(                               
+            status_code=422,                               
+            detail="Max 500 events per batch allowed",     
+        )                                                  
     return ingest_events(request, db)
 
 

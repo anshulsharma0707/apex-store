@@ -49,7 +49,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
 
     converted_visitors = set()
     for txn in transactions:
-        billing_window_start = txn.timestamp - timedelta(minutes=60)
+        billing_window_start = txn.timestamp - timedelta(minutes=5)
         billing_visitors = (
             base_q
             .filter(

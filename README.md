@@ -123,17 +123,17 @@ pytest tests/ -v --cov=app --cov-report=term-missing
 
 ## Tech Stack
 
-| Component     | Technology              |
-| ------------- | ----------------------- |
-| Detection     | YOLOv8 (ultralytics)    |
-| Tracking      | ByteTrack + ReID        |
-| API Framework | FastAPI                 |
-| Database      | PostgreSQL 16           |
-| Cache         | Redis 7                 |
-| Dashboard     | Streamlit               |
-| Containers    | Docker + Docker Compose |
-| Testing       | pytest                  |
-| Logging       | structlog               |
+| Component     | Technology                |
+| ------------- | ------------------------- |
+| Detection     | YOLOv8 (ultralytics)      |
+| Tracking      | Custom IoU + ReID Tracker |
+| API Framework | FastAPI                   |
+| Database      | PostgreSQL 16             |
+| Cache         | Redis 7                   |
+| Dashboard     | Streamlit                 |
+| Containers    | Docker + Docker Compose   |
+| Testing       | pytest                    |
+| Logging       | structlog                 |
 
 ---
 
