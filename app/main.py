@@ -47,9 +47,14 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     latency = round((time.time() - start) * 1000, 2)
 
+    # Extract store_id from path if present
+    path_parts = request.url.path.split("/")
+    store_id = path_parts[2] if len(path_parts) > 2 and path_parts[1] == "stores" else None
+
     logger.info(
         "request",
         trace_id=trace_id,
+        store_id=store_id,          
         method=request.method,
         endpoint=request.url.path,
         status_code=response.status_code,
@@ -86,12 +91,20 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 @app.post("/events/ingest", response_model=IngestResponse)
 def ingest(request: IngestRequest, db: Session = Depends(get_db)):
-    if len(request.events) > 500:                         
-        raise HTTPException(                               
-            status_code=422,                               
-            detail="Max 500 events per batch allowed",     
-        )                                                  
-    return ingest_events(request, db)
+    if len(request.events) > 500:
+        raise HTTPException(
+            status_code=422,
+            detail="Max 500 events per batch allowed",
+        )
+    result = ingest_events(request, db)
+    logger.info(
+        "ingest_complete",
+        event_count=len(request.events),   
+        accepted=result.accepted,
+        rejected=result.rejected,
+        duplicate=result.duplicate,
+    )
+    return result
 
 
 @app.get("/stores/{store_id}/metrics", response_model=MetricsResponse)
