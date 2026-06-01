@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
 from app.database import EventDB, TransactionDB
 from app.models import MetricsResponse, ZoneDwell
+from app.cache import cache_get, cache_set
 from datetime import datetime, timezone, timedelta
 
 
@@ -22,6 +23,12 @@ def parse_metadata(metadata_) -> dict:
 
 # ─── Get Store Metrics ────────────────────────────────────────
 def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
+    # ── Cache Check ───────────────────────────────────────────
+    cache_key = f"metrics:{store_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return MetricsResponse(**cached)
+
     now          = datetime.now(timezone.utc)
     window_start = now - timedelta(days=365)
 
@@ -41,7 +48,6 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
     )
 
     # ── Conversion Rate ───────────────────────────────────────
-    # Visitors who were in billing zone 5 min before a transaction
     transactions = db.query(TransactionDB).filter(
         TransactionDB.store_id  == store_id,
         TransactionDB.timestamp >= window_start,
@@ -122,7 +128,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         if total_queue_joins > 0 else 0.0
     )
 
-    return MetricsResponse(
+    result = MetricsResponse(
         store_id=store_id,
         unique_visitors=unique_visitors,
         conversion_rate=conversion_rate,
@@ -132,3 +138,8 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         window_start=window_start,
         window_end=now,
     )
+
+    # ── Cache Store ───────────────────────────────────────────
+    cache_set(cache_key, result.model_dump())
+
+    return result

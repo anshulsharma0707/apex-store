@@ -119,3 +119,41 @@ With PostgreSQL the answer to "what breaks first at 40 stores?" is
 is "the write lock — rewrite the storage layer." One is an ops fix,
 the other is an architecture change. I wanted to be on the right side
 of that question.
+
+---
+
+## Decision 4: Redis Caching on Metrics Endpoint
+
+### Options
+
+| Option | Good For | Not Good For |
+|---|---|---|
+| No caching | Simple, always fresh data | Slow at scale — DB hit every request |
+| Redis 30s TTL (chosen) | Fast repeat queries, production-ready | Slight staleness acceptable |
+| In-memory cache | Zero infra | Dies on restart, not shared across instances |
+| PostgreSQL materialized views | Very fast reads | Complex to refresh, not real-time |
+
+### What Happened
+
+The metrics endpoint was recomputing everything from scratch on every
+request — scanning all events, correlating POS transactions, computing
+zone averages. At 40 stores with a dashboard polling every 5 seconds,
+that is 8 DB queries per second minimum just for metrics.
+
+I added a 30-second Redis cache on the metrics endpoint. First call
+hits the database and stores the result. Every subsequent call within
+30 seconds returns from Redis directly.
+
+Measured result on the running system:
+- First call (DB): 186ms
+- Second call (Redis cache): 49ms — 4x faster
+
+I chose 30 seconds as the TTL deliberately. Metrics are not
+tick-by-tick data — a 30-second window is acceptable for a retail
+dashboard. Queue depth and anomalies are not cached because those
+need to be real-time.
+
+One thing I added that Claude did not suggest: graceful degradation.
+If Redis is unavailable, `cache_get` and `cache_set` both silently
+return None and the API falls back to DB. The service never goes down
+because of a cache failure.
