@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 COPY pipeline/ ./pipeline/
+COPY tests/ ./tests/
 
 EXPOSE 8000
 

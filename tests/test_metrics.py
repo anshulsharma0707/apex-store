@@ -4,6 +4,7 @@
 # abandonment rate, and re-entry deduplication.
 # CHANGES MADE: Added POS transaction fixtures, adjusted billing
 # correlation window to match our 5-minute window logic.
+# Added Redis cache flush in setup_db fixture to prevent stale cache between tests.
 
 import pytest
 import uuid
@@ -41,6 +42,15 @@ app.dependency_overrides[get_db] = override_get_db
 def setup_db():
     Base.metadata.create_all(bind=test_engine)
     app.dependency_overrides[get_db] = override_get_db
+
+    # ✅ Redis cache flush — stale data prevent karo
+    try:
+        from app.cache import redis_client
+        if redis_client:
+            redis_client.flushdb()
+    except Exception:
+        pass
+
     yield
     Base.metadata.drop_all(bind=test_engine)
 
@@ -127,9 +137,9 @@ def test_conversion_rate_with_transaction():
     resp = client.get("/stores/STORE_BLR_002/metrics")
     assert resp.status_code == 200
     data = resp.json()
-    # Conversion rate check - at least endpoint works correctly
     assert data["conversion_rate"] >= 0.0
     assert data["unique_visitors"] >= 0
+
 
 def test_zone_dwell_average():
     db = TestSessionLocal()
@@ -164,9 +174,9 @@ def test_empty_store_no_crash():
     assert data["unique_visitors"] == 0
     assert data["conversion_rate"] == 0.0
     assert data["queue_depth"] == 0
-    
-    
-    # ─── Funnel Tests ─────────────────────────────────────────────
+
+
+# ─── Funnel Tests ─────────────────────────────────────────────
 def test_funnel_basic():
     db = TestSessionLocal()
     insert_event(db, "VIS_001", "ENTRY")
