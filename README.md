@@ -37,7 +37,25 @@ for i in range(0, len(events), 100):
     print(f'Batch {i//100+1}:', r.json()['accepted'], 'accepted')
 "
 
-# 5. Open live dashboard
+# 5. Seed STORE_BLR_002 sample data (required for acceptance gate)
+python -c "
+import json, uuid, requests
+events = []
+with open('data/sample_events.jsonl') as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            e = json.loads(line)
+            e['store_id'] = 'STORE_BLR_002'
+            e['event_id'] = str(uuid.uuid4())
+            events.append(e)
+for i in range(0, len(events), 100):
+    batch = events[i:i+100]
+    r = requests.post('http://localhost:8000/events/ingest', json={'events': batch})
+    print(f'Batch {i//100+1}:', r.json())
+"
+
+# 6. Open live dashboard
 python -m streamlit run dashboard/dashboard.py
 ```
 
