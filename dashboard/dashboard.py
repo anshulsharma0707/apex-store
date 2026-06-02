@@ -5,7 +5,7 @@ from datetime import datetime
 
 # ─── Config ───────────────────────────────────────────────────
 API_URL = "http://localhost:8000"
-DEFAULT_STORE = "ST1008"
+DEFAULT_STORE = "STORE_BLR_002"
 REFRESH_INTERVAL = 5  # seconds
 
 st.set_page_config(
