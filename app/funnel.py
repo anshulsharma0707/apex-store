@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 # ─── Get Conversion Funnel ────────────────────────────────────
 def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
     now = datetime.now(timezone.utc)
-    window_start = now - timedelta(days=365)
+    window_start = now - timedelta(hours=24)
 
     # Base query — exclude staff
     base_q = db.query(EventDB).filter(

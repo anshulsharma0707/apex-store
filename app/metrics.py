@@ -30,7 +30,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         return MetricsResponse(**cached)
 
     now          = datetime.now(timezone.utc)
-    window_start = now - timedelta(days=365)
+    window_start = now - timedelta(hours=24)
 
     # Base query — exclude staff
     base_q = db.query(EventDB).filter(
