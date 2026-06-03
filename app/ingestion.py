@@ -7,7 +7,7 @@ import structlog
 logger = structlog.get_logger()
 
 
-# ─── Ingest Events ────────────────────────────────────────────
+# Event Ingestion Logic
 def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
     accepted = 0
     rejected = 0
@@ -16,7 +16,7 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
 
     for event in request.events:
         try:
-            # Validate confidence
+            # Check confidence score range
             if event.confidence < 0.0 or event.confidence > 1.0:
                 rejected += 1
                 errors.append({
@@ -25,7 +25,7 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
                 })
                 continue
 
-            # Check duplicate by event_id (idempotent)
+            # Skip if event already exists
             existing = db.query(EventDB).filter(
                 EventDB.event_id == event.event_id
             ).first()
@@ -34,7 +34,7 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
                 duplicate += 1
                 continue
 
-            # Save to DB using savepoint — sirf is event ka rollback hoga
+            # Save event using a nested transaction
             with db.begin_nested():
                 db_event = EventDB(
                     event_id   = event.event_id,
@@ -74,7 +74,7 @@ def ingest_events(request: IngestRequest, db: Session) -> IngestResponse:
                 error=str(e)
             )
 
-    db.commit()  # ✅ saare successful events commit
+    db.commit()  # Commit all valid events
     return IngestResponse(
         accepted=accepted,
         rejected=rejected,

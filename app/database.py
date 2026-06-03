@@ -6,14 +6,14 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# ─── Database URL ─────────────────────────────────────────────
+# Load database configuration from environment variables
+# Database Configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://apex_user:apex_pass@localhost:5432/apex_db"
 )
 
-# ─── Engine ───────────────────────────────────────────────────
+# Database Engine Setup
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
@@ -25,7 +25,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# ─── DB Table: Events ─────────────────────────────────────────
+# Events Table
 class EventDB(Base):
     __tablename__ = "events"
 
@@ -42,7 +42,7 @@ class EventDB(Base):
     metadata_    = Column(JSON, default={})
 
 
-# ─── DB Table: POS Transactions ───────────────────────────────
+# POS Transactions Table
 class TransactionDB(Base):
     __tablename__ = "pos_transactions"
 
@@ -52,14 +52,15 @@ class TransactionDB(Base):
     basket_value    = Column(Float, nullable=False)
 
 
-# ─── Create Tables ────────────────────────────────────────────
+# POS Transactions Table
 def init_db():
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created")
 
 
-# ─── Dependency: Get DB Session ───────────────────────────────
+# Database Session Dependency
 def get_db():
+    # Create a new database session for each request
     db = SessionLocal()
     try:
         yield db

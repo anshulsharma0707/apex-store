@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 
-# ─── Event Schema ─────────────────────────────────────────────
+# Event creation helpers
 def make_event(
     store_id: str,
     camera_id: str,
@@ -39,7 +39,7 @@ def make_event(
     }
 
 
-# ─── Event Emitter Class ──────────────────────────────────────
+# Event writer
 class EventEmitter:
     def __init__(self, output_path: str):
         self.output_path = Path(output_path)
@@ -57,7 +57,7 @@ class EventEmitter:
         print(f"✅ Emitted {self.count} events → {self.output_path}")
 
 
-# ─── Load Events from JSONL ───────────────────────────────────
+# Load events from a JSONL file
 def load_events(path: str) -> list[dict]:
     events = []
     with open(path, "r", encoding="utf-8") as f:
@@ -68,7 +68,7 @@ def load_events(path: str) -> list[dict]:
     return events
 
 
-# ─── Push Events to API ───────────────────────────────────────
+# Send events to the ingestion API
 def push_events_to_api(
     events: list[dict],
     api_url: str = "http://localhost:8000",

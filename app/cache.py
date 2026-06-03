@@ -3,7 +3,7 @@ import os
 import redis
 
 
-# ─── Redis Connection ─────────────────────────────────────────
+# Redis Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 CACHE_TTL  = 30  # seconds
 
@@ -14,7 +14,7 @@ except Exception:
     redis_client = None
 
 
-# ─── Get from Cache ───────────────────────────────────────────
+# Fetch Data From Cache
 def cache_get(key: str) -> dict | None:
     if not redis_client:
         return None
@@ -27,7 +27,7 @@ def cache_get(key: str) -> dict | None:
     return None
 
 
-# ─── Set in Cache ─────────────────────────────────────────────
+# Store Data In Cache
 def cache_set(key: str, value: dict, ttl: int = CACHE_TTL):
     if not redis_client:
         return

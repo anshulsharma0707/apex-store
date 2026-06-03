@@ -6,20 +6,20 @@ from app.metrics import parse_metadata
 from datetime import datetime, timezone, timedelta
 
 
-# ─── Detect Anomalies ─────────────────────────────────────────
+# Anomaly Detection
 def get_store_anomalies(store_id: str, db: Session) -> AnomalyResponse:
     now          = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=24)
     anomalies    = []
 
-    # Base query — exclude staff
+    # Customer events only
     base_q = db.query(EventDB).filter(
         EventDB.store_id  == store_id,
         EventDB.is_staff  == False,
         EventDB.timestamp >= window_start,
     )
 
-    # ── Anomaly 1: Billing Queue Spike ────────────────────────
+    # Queue Spike Detection
     latest_queue = (
         base_q
         .filter(EventDB.event_type == "BILLING_QUEUE_JOIN")
@@ -48,8 +48,8 @@ def get_store_anomalies(store_id: str, db: Session) -> AnomalyResponse:
                 detected_at=now,
             ))
 
-    # ── Anomaly 2: Conversion Drop ────────────────────────────
-    # Compare today vs 7-day average
+    # Conversion Drop Detection
+    # Compare current performance with weekly average
     today_start = now - timedelta(hours=24)
     week_start  = now - timedelta(days=7)
 
@@ -106,8 +106,8 @@ def get_store_anomalies(store_id: str, db: Session) -> AnomalyResponse:
                 detected_at=now,
             ))
 
-    # ── Anomaly 3: Dead Zone ──────────────────────────────────
-    # Zone with no visits in last 30 minutes
+    # Dead Zone Detection
+    # Identify inactive zones
     thirty_min_ago = now - timedelta(minutes=30)
 
     active_zones = (

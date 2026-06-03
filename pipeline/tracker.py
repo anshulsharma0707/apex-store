@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import uuid
 
 
-# ─── Track State ──────────────────────────────────────────────
+# Track data model
 @dataclass
 class Track:
     track_id: int
@@ -23,7 +23,7 @@ class Track:
     exited: bool = False
 
 
-# ─── Re-ID Tracker ────────────────────────────────────────────
+# Re-identification tracker
 class ReIDTracker:
     def __init__(
         self,
@@ -39,17 +39,17 @@ class ReIDTracker:
 
         self.active_tracks: Dict[int, Track] = {}
         self.lost_tracks: Dict[int, Track] = {}
-        # visitor_id -> (exit_time, last_known_centroid)
+        # Stores exit metadata for re-entry matching
         self.exited_visitors: Dict[str, Tuple] = {}
         self._lost_counters: Dict[int, int] = {}
         self._next_track_id = 1
 
-    # ── Centroid ──────────────────────────────────────────────
+    # Centroid calculation
     def _centroid(self, bbox: Tuple) -> Tuple:
         x1, y1, x2, y2 = bbox
         return ((x1 + x2) / 2, (y1 + y2) / 2)
 
-    # ── IoU ───────────────────────────────────────────────────
+    # Intersection-over-Union
     def _iou(self, a: Tuple, b: Tuple) -> float:
         ax1, ay1, ax2, ay2 = a
         bx1, by1, bx2, by2 = b
@@ -64,11 +64,11 @@ class ReIDTracker:
         area_b = (bx2 - bx1) * (by2 - by1)
         return inter / (area_a + area_b - inter)
 
-    # ── Distance ──────────────────────────────────────────────
+    # Distance calculation
     def _distance(self, c1: Tuple, c2: Tuple) -> float:
         return float(np.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2))
 
-    # ── Match Detections to Tracks ────────────────────────────
+    # Detection matching
     def _match(self, detections: List[Tuple]) -> Dict[int, int]:
         """Returns {detection_idx: track_id}"""
         matches = {}
@@ -95,16 +95,11 @@ class ReIDTracker:
 
         return matches
 
-    # ── Check Re-entry by proximity to exited visitor ─────────
+    # Re-entry matching
     def _find_reentry_visitor(self, bbox: Tuple, now: datetime) -> Optional[str]:
         """
-        Check if this new detection is likely a re-entering visitor.
-        Strategy: find an exited visitor whose last known centroid is
-        close to this detection's centroid, within the reentry window.
-
-        This solves the key edge case: same person re-entering from
-        the same direction 3 seconds later — we match by proximity
-        to their last known position, not by generating a new UUID first.
+        Attempts to match a new detection with a recently exited visitor
+        based on spatial proximity and the configured re-entry window.
         """
         new_centroid = self._centroid(bbox)
         best_visitor_id = None
@@ -122,15 +117,14 @@ class ReIDTracker:
 
         return best_visitor_id
 
-    # ── Update Tracks ─────────────────────────────────────────
+    # Track updates
     def update(
         self,
         detections: List[Tuple],  # list of (bbox, confidence)
         now: datetime,
     ) -> List[Dict]:
         """
-        Update tracker with new detections.
-        Returns list of track updates with visitor_id and status.
+        Updates tracker state and returns tracking results.
         """
         bboxes  = [d[0] for d in detections]
         confs   = [d[1] for d in detections]
@@ -139,7 +133,7 @@ class ReIDTracker:
 
         matched_track_ids = set(matches.values())
 
-        # ── Update matched tracks ──────────────────────────────
+        # Update existing tracks
         for d_idx, track_id in matches.items():
             track = self.active_tracks[track_id]
             track.bbox     = bboxes[d_idx]
@@ -160,22 +154,21 @@ class ReIDTracker:
                 "session_seq": track.session_seq,
             })
 
-        # ── New detections ─────────────────────────────────────
+        # Process unmatched detections
         for d_idx, (bbox, conf) in enumerate(detections):
             if d_idx in matches:
                 continue
 
-            # Check if this is a re-entering visitor BEFORE generating new ID
-            # This is the critical fix — we match by proximity to exited centroid
+            # Check for a matching recently exited visitor
             reentry_visitor_id = self._find_reentry_visitor(bbox, now)
 
             if reentry_visitor_id:
-                # Re-entry: reuse same visitor_id, remove from exited dict
+                # Reuse existing visitor identifier
                 visitor_id = reentry_visitor_id
                 del self.exited_visitors[visitor_id]
                 status = "REENTRY"
             else:
-                # Genuinely new visitor
+                # Create a new visitor record
                 visitor_id = f"VIS_{uuid.uuid4().hex[:6]}"
                 status = "NEW"
 
@@ -204,7 +197,7 @@ class ReIDTracker:
                 "session_seq": 0,
             })
 
-        # ── Lost tracks ────────────────────────────────────────
+        # Handle inactive tracks
         for track_id in list(self.active_tracks.keys()):
             if track_id not in matched_track_ids:
                 self._lost_counters[track_id] = (
@@ -213,7 +206,7 @@ class ReIDTracker:
                 if self._lost_counters[track_id] > self.max_lost_frames:
                     track = self.active_tracks.pop(track_id)
                     track.exited = True
-                    # Store exit time AND last known centroid for re-entry matching
+                    # Save exit metadata for future matching
                     self.exited_visitors[track.visitor_id] = (
                         track.last_seen,
                         track.centroid,
@@ -232,7 +225,7 @@ class ReIDTracker:
 
         return results
 
-    # ── Helpers ───────────────────────────────────────────────
+    # Utility methods
     def get_track(self, track_id: int) -> Optional[Track]:
         return self.active_tracks.get(track_id)
 

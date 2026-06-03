@@ -1,10 +1,4 @@
-# PROMPT: Generate pytest tests for store metrics endpoint.
-# Tests should cover: unique visitor count, conversion rate calculation,
-# staff exclusion from metrics, zero purchase store, zone dwell averages,
-# abandonment rate, and re-entry deduplication.
-# CHANGES MADE: Added POS transaction fixtures, adjusted billing
-# correlation window to match our 5-minute window logic.
-# Added Redis cache flush in setup_db fixture to prevent stale cache between tests.
+
 
 import pytest
 import uuid
@@ -16,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import Base, get_db, EventDB, TransactionDB
 
-# ─── Test DB Setup ────────────────────────────────────────────
+# Test database setup
 TEST_DB_URL = "sqlite:///./test_metrics.db"
 test_engine = create_engine(
     TEST_DB_URL,
@@ -43,7 +37,7 @@ def setup_db():
     Base.metadata.create_all(bind=test_engine)
     app.dependency_overrides[get_db] = override_get_db
 
-    # ✅ Redis cache flush — stale data prevent karo
+    # Clear Redis cache before each test run
     try:
         from app.cache import redis_client
         if redis_client:
@@ -58,7 +52,7 @@ def setup_db():
 client = TestClient(app)
 
 
-# ─── Helpers ──────────────────────────────────────────────────
+# Test helpers
 def insert_event(db, visitor_id, event_type, zone_id=None,
                  is_staff=False, dwell_ms=0, store_id="STORE_BLR_002"):
     now = datetime.now(timezone.utc)
@@ -90,7 +84,7 @@ def insert_transaction(db, store_id="STORE_BLR_002", offset_minutes=2):
     db.commit()
 
 
-# ─── Tests ────────────────────────────────────────────────────
+# Metrics tests
 def test_unique_visitors_count():
     db = TestSessionLocal()
     insert_event(db, "VIS_001", "ENTRY")
@@ -176,7 +170,7 @@ def test_empty_store_no_crash():
     assert data["queue_depth"] == 0
 
 
-# ─── Funnel Tests ─────────────────────────────────────────────
+# Funnel endpoint tests
 def test_funnel_basic():
     db = TestSessionLocal()
     insert_event(db, "VIS_001", "ENTRY")

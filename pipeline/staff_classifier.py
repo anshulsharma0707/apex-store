@@ -4,25 +4,25 @@ from typing import Tuple, Dict
 from collections import defaultdict
 
 
-# ─── Staff Uniform Color Profiles ─────────────────────────────
+# Staff uniform color ranges
 STAFF_UNIFORM_COLORS = [
-    {"lower": np.array([100, 50, 50]),  "upper": np.array([130, 255, 255])},  # Blue
-    {"lower": np.array([0, 0, 200]),    "upper": np.array([180, 30, 255])},   # White
-    {"lower": np.array([100, 50, 20]),  "upper": np.array([130, 255, 80])},   # Dark navy
+    {"lower": np.array([100, 50, 50]),  "upper": np.array([130, 255, 255])},  # Blue uniform range
+    {"lower": np.array([0, 0, 200]),    "upper": np.array([180, 30, 255])},   # White uniform range
+    {"lower": np.array([100, 50, 20]),  "upper": np.array([130, 255, 80])},   # Dark navy uniform range
 ]
 
-# ─── Thresholds ───────────────────────────────────────────────
+# Classification thresholds
 COLOR_WEIGHT       = 0.4
 ZONE_WEIGHT        = 0.3
 DWELL_WEIGHT       = 0.3
 STAFF_SCORE_THRESH = 0.55
 COLOR_THRESHOLD    = 0.30
-STAFF_ZONE_MIN     = 4      # 4+ zones = likely staff
-DWELL_THRESH_MS    = 30000  # <30s avg dwell = likely staff
-SCREEN_TIME_THRESH = 0.75   # 75%+ frames = likely staff
+STAFF_ZONE_MIN     = 4       # Minimum zones visited before increasing staff confidence
+DWELL_THRESH_MS    = 30000   # <30s avg dwell = likely staff
+SCREEN_TIME_THRESH = 0.75   # Dwell-time threshold used in scoring
 
 
-# ─── Visitor Stats Tracker ────────────────────────────────────
+# Visitor Stats Tracker
 class VisitorStats:
     def __init__(self):
         self.zones_visited: set   = set()
@@ -49,7 +49,7 @@ class VisitorStats:
         return len(self.zones_visited)
 
 
-# ─── Main Staff Classifier ────────────────────────────────────
+# Main Staff Classifier
 class StaffClassifier:
     def __init__(
         self,
@@ -62,7 +62,7 @@ class StaffClassifier:
         self._scores: Dict[str, float]       = {}
         self._stats: Dict[str, VisitorStats] = defaultdict(VisitorStats)
 
-    # ── Color Signal ──────────────────────────────────────────
+    # Color Signal
     def _color_score(self, frame: np.ndarray, bbox: Tuple) -> float:
         x1, y1, x2, y2 = map(int, bbox)
         h = y2 - y1
@@ -86,12 +86,12 @@ class StaffClassifier:
 
         return min(max_ratio / COLOR_THRESHOLD, 1.0)
 
-    # ── Zone Signal ───────────────────────────────────────────
+    # Zone Signal
     def _zone_score(self, visitor_id: str) -> float:
         zone_count = self._stats[visitor_id].zone_count()
         return min(zone_count / STAFF_ZONE_MIN, 1.0)
 
-    # ── Dwell Signal ──────────────────────────────────────────
+    #  Dwell Signal
     def _dwell_score(self, visitor_id: str, fps: float) -> float:
         avg_dwell = self._stats[visitor_id].avg_dwell_ms(fps)
         if avg_dwell == 0:
@@ -101,7 +101,7 @@ class StaffClassifier:
             return 1.0 - (avg_dwell / DWELL_THRESH_MS)
         return 0.0
 
-    # ── Combined Score ────────────────────────────────────────
+    # Combined Score
     def _compute_score(
         self,
         frame: np.ndarray,
@@ -120,7 +120,7 @@ class StaffClassifier:
         )
         return round(score, 4)
 
-    # ── Update Stats ──────────────────────────────────────────
+    # Update Stats
     def update_stats(
         self,
         visitor_id: str,
@@ -132,7 +132,7 @@ class StaffClassifier:
         if zone_id and dwell_ms > 0:
             self._stats[visitor_id].zone_dwell_ms[zone_id] += dwell_ms
 
-    # ── Main Classify ─────────────────────────────────────────
+    # Main Classify
     def classify(
         self,
         frame: np.ndarray,

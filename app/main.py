@@ -25,7 +25,7 @@ from sqlalchemy import func
 
 logger = structlog.get_logger()
 
-# ─── App Init ─────────────────────────────────────────────────
+# Application Setup 
 app = FastAPI(
     title="Apex Store Intelligence API",
     description="Real-time retail analytics from CCTV events",
@@ -39,7 +39,8 @@ def startup():
     logger.info("api_started", version="1.0.0")
 
 
-# ─── Middleware: Logging ───────────────────────────────────────
+# Request Logging Middleware
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     trace_id = str(uuid.uuid4())
@@ -47,7 +48,7 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     latency = round((time.time() - start) * 1000, 2)
 
-    # Extract store_id from path if present
+    # Capture store id for request tracing
     path_parts = request.url.path.split("/")
     store_id = path_parts[2] if len(path_parts) > 2 and path_parts[1] == "stores" else None
 
@@ -63,7 +64,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-# ─── Error Handlers ───────────────────────────────────────────
+# Exception Handlers
 @app.exception_handler(OperationalError)
 async def db_error_handler(request: Request, exc: OperationalError):
     logger.error("database_unavailable", error=str(exc))
@@ -87,7 +88,7 @@ async def generic_error_handler(request: Request, exc: Exception):
     )
 
 
-# ─── Routes ───────────────────────────────────────────────────
+# API Routes
 
 @app.post("/events/ingest", response_model=IngestResponse)
 def ingest(request: IngestRequest, db: Session = Depends(get_db)):

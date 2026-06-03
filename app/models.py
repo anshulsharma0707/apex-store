@@ -4,14 +4,14 @@ from datetime import datetime
 import uuid
 
 
-# ─── Event Metadata ───────────────────────────────────────────
+# Event Metadata
 class EventMetadata(BaseModel):
     queue_depth: Optional[int] = None
     sku_zone: Optional[str] = None
     session_seq: int = 0
 
 
-# ─── Main Event Schema ────────────────────────────────────────
+# Store Event Schema
 class StoreEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     store_id: str
@@ -35,7 +35,7 @@ class StoreEvent(BaseModel):
     metadata: EventMetadata = Field(default_factory=EventMetadata)
 
 
-# ─── Ingest Request/Response ──────────────────────────────────
+# Ingestion Models
 class IngestRequest(BaseModel):
     events: list[StoreEvent]
 
@@ -47,7 +47,7 @@ class IngestResponse(BaseModel):
     errors: list[dict] = []
 
 
-# ─── Metrics Response ─────────────────────────────────────────
+# Metrics Models
 class ZoneDwell(BaseModel):
     zone_id: str
     avg_dwell_ms: float
@@ -65,7 +65,7 @@ class MetricsResponse(BaseModel):
     window_end: datetime
 
 
-# ─── Funnel Response ──────────────────────────────────────────
+# Funnel Models
 class FunnelStage(BaseModel):
     stage: str
     count: int
@@ -79,7 +79,7 @@ class FunnelResponse(BaseModel):
     window_end: datetime
 
 
-# ─── Heatmap Response ─────────────────────────────────────────
+# Heatmap Models
 class HeatmapZone(BaseModel):
     zone_id: str
     visit_frequency: float
@@ -93,7 +93,7 @@ class HeatmapResponse(BaseModel):
     zones: list[HeatmapZone]
 
 
-# ─── Anomaly Response ─────────────────────────────────────────
+# Anomaly Models
 class Anomaly(BaseModel):
     anomaly_type: str
     severity: Literal["INFO", "WARN", "CRITICAL"]
@@ -107,7 +107,7 @@ class AnomalyResponse(BaseModel):
     anomalies: list[Anomaly]
 
 
-# ─── Health Response ──────────────────────────────────────────
+# Health Models
 class StoreHealth(BaseModel):
     store_id: str
     last_event_timestamp: Optional[datetime]
@@ -119,7 +119,7 @@ class HealthResponse(BaseModel):
     stores: list[StoreHealth]
     checked_at: datetime
     
-# ─── Transaction Ingest Request ───────────────────────────────
+# Transaction Request Model
 class TransactionIngestRequest(BaseModel):
     store_id: str
     transaction_id: str

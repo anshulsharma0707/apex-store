@@ -1,9 +1,4 @@
-# PROMPT: Generate pytest tests for anomaly detection endpoint.
-# Tests should cover: queue spike detection (WARN and CRITICAL),
-# conversion drop vs 7-day average, dead zone detection,
-# no anomalies when everything is normal, empty store handling.
-# CHANGES MADE: Added 7-day historical data fixtures for conversion
-# drop tests, adjusted severity thresholds to match our 15%/30% logic.
+
 
 import pytest
 import uuid
@@ -15,7 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import Base, get_db, EventDB, TransactionDB
 
-# ─── Test DB Setup ────────────────────────────────────────────
+# Test Database Setup
 TEST_DB_URL = "sqlite:///./test_anomalies.db"
 test_engine = create_engine(
     TEST_DB_URL,
@@ -49,7 +44,7 @@ client = TestClient(app)
 STORE = "STORE_BLR_002"
 
 
-# ─── Helpers ──────────────────────────────────────────────────
+# Helpers
 def insert_event(db, visitor_id, event_type, zone_id=None,
                  is_staff=False, metadata=None, ts=None):
     event = EventDB(
@@ -80,7 +75,7 @@ def insert_transaction(db, ts=None):
     db.commit()
 
 
-# ─── Tests ────────────────────────────────────────────────────
+# Test Cases
 def test_no_anomalies_empty_store():
     resp = client.get(f"/stores/{STORE}/anomalies")
     assert resp.status_code == 200

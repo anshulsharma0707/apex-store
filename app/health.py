@@ -3,15 +3,14 @@ from sqlalchemy import func
 from app.database import EventDB
 from app.models import HealthResponse, StoreHealth
 from datetime import datetime, timezone, timedelta
-from datetime import datetime, timezone, timedelta
 
 
-# ─── Health Check ─────────────────────────────────────────────
+# Store Health Monitoring
 def get_health(db: Session) -> HealthResponse:
     now = datetime.now(timezone.utc)
     stale_threshold = now - timedelta(minutes=10)
 
-    # Get all unique store IDs
+    # Fetch available stores
     stores = (
         db.query(func.distinct(EventDB.store_id))
         .all()
@@ -21,7 +20,7 @@ def get_health(db: Session) -> HealthResponse:
     store_healths = []
 
     for store_id in store_ids:
-        # Get last event timestamp for this store
+        # Retrieve latest event
         last_event = (
             db.query(EventDB)
             .filter(EventDB.store_id == store_id)
@@ -45,7 +44,7 @@ def get_health(db: Session) -> HealthResponse:
             status=status,
         ))
 
-    # Overall status
+    # Determine overall system status
     statuses = [s.status for s in store_healths]
     if "STALE_FEED" in statuses:
         overall = "DEGRADED"

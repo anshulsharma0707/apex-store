@@ -7,7 +7,7 @@ from app.cache import cache_get, cache_set
 from datetime import datetime, timezone, timedelta
 
 
-# ─── Helper: Parse metadata JSON safely ───────────────────────
+# Helper Function
 def parse_metadata(metadata_) -> dict:
     if not metadata_:
         return {}
@@ -21,9 +21,9 @@ def parse_metadata(metadata_) -> dict:
     return {}
 
 
-# ─── Get Store Metrics ────────────────────────────────────────
+# Store Metrics
 def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
-    # ── Cache Check ───────────────────────────────────────────
+    # Check Cache
     cache_key = f"metrics:{store_id}"
     cached = cache_get(cache_key)
     if cached:
@@ -32,14 +32,14 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
     now          = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=24)
 
-    # Base query — exclude staff
+    # Base query for customer events
     base_q = db.query(EventDB).filter(
         EventDB.store_id  == store_id,
         EventDB.is_staff  == False,
         EventDB.timestamp >= window_start,
     )
 
-    # ── Unique Visitors ───────────────────────────────────────
+    # Unique Visitors
     unique_visitors = (
         base_q
         .filter(EventDB.event_type == "ENTRY")
@@ -47,7 +47,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         .scalar() or 0
     )
 
-    # ── Conversion Rate ───────────────────────────────────────
+    # Conversion Rate
     transactions = db.query(TransactionDB).filter(
         TransactionDB.store_id  == store_id,
         TransactionDB.timestamp >= window_start,
@@ -74,7 +74,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         if unique_visitors > 0 else 0.0
     )
 
-    # ── Avg Dwell Per Zone ────────────────────────────────────
+    # Average Dwell Time Per Zone
     zone_dwells = (
         base_q
         .filter(
@@ -99,7 +99,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         for z in zone_dwells
     ]
 
-    # ── Queue Depth ───────────────────────────────────────────
+    # Queue Depth
     latest_queue = (
         base_q
         .filter(EventDB.event_type == "BILLING_QUEUE_JOIN")
@@ -112,7 +112,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         meta = parse_metadata(latest_queue.metadata_)
         queue_depth = meta.get("queue_depth", 0) or 0
 
-    # ── Abandonment Rate ──────────────────────────────────────
+    # Queue Abandonment Rate
     total_queue_joins = (
         base_q
         .filter(EventDB.event_type == "BILLING_QUEUE_JOIN")
@@ -139,7 +139,7 @@ def get_store_metrics(store_id: str, db: Session) -> MetricsResponse:
         window_end=now,
     )
 
-    # ── Cache Store ───────────────────────────────────────────
+    # Store Result In Cache
     cache_set(cache_key, result.model_dump())
 
     return result

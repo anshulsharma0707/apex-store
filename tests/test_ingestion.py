@@ -1,8 +1,4 @@
-# PROMPT: Generate pytest tests for a FastAPI event ingestion endpoint.
-# Tests should cover: happy path, duplicate events (idempotency),
-# malformed events, batch of 500, empty batch, staff events excluded.
-# CHANGES MADE: Added fixture for DB session mock, adjusted
-# duplicate detection logic to match our event_id based dedup.
+
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +8,7 @@ from app.database import Base, engine, get_db
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# ─── Test DB Setup ────────────────────────────────────────────
+# Test database setup
 TEST_DB_URL = "sqlite:///./test.db"
 
 test_engine = create_engine(
@@ -48,7 +44,7 @@ def setup_db():
 client = TestClient(app)
 
 
-# ─── Helper ───────────────────────────────────────────────────
+# Test data helper
 def make_event(event_id=None, event_type="ENTRY", is_staff=False):
     return {
         "event_id":   event_id or "test-event-001",
@@ -69,7 +65,7 @@ def make_event(event_id=None, event_type="ENTRY", is_staff=False):
     }
 
 
-# ─── Tests ────────────────────────────────────────────────────
+# Test cases
 def test_ingest_single_event():
     resp = client.post("/events/ingest", json={"events": [make_event()]})
     assert resp.status_code == 200
@@ -124,7 +120,7 @@ def test_ingest_partial_success():
     import uuid
     events = [
         make_event(event_id=str(uuid.uuid4())),
-        {**make_event(event_id=str(uuid.uuid4())), "confidence": 99},  # invalid
+        {**make_event(event_id=str(uuid.uuid4())), "confidence": 99},   # intentionally invalid
         make_event(event_id=str(uuid.uuid4())),
     ]
     resp = client.post("/events/ingest", json={"events": events})
@@ -150,9 +146,9 @@ def test_ingest_integrity_error_duplicate():
     import uuid
     event_id = str(uuid.uuid4())
     event = make_event(event_id=event_id)
-    # First insert
+    # Insert original event
     client.post("/events/ingest", json={"events": [event]})
-    # Second insert — same event_id — should be duplicate
+    # Re-submit the same event_id
     resp = client.post("/events/ingest", json={"events": [event]})
     assert resp.status_code == 200
     assert resp.json()["duplicate"] >= 1
@@ -168,6 +164,6 @@ def test_ingest_invalid_confidence_negative():
 def test_ingest_logs_error_on_bad_event():
     import uuid
     event = make_event(event_id=str(uuid.uuid4()))
-    event["store_id"] = None  # Invalid
+    event["store_id"] = None   # Missing required value
     resp = client.post("/events/ingest", json={"events": [event]})
     assert resp.status_code in [200, 422]

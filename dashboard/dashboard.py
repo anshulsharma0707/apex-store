@@ -3,7 +3,7 @@ import requests
 import time
 from datetime import datetime
 
-# ─── Config ───────────────────────────────────────────────────
+# Dashboard configuration
 API_URL = "http://localhost:8000"
 DEFAULT_STORE = "STORE_BLR_002"
 REFRESH_INTERVAL = 5  # seconds
@@ -14,16 +14,16 @@ st.set_page_config(
     layout="wide",
 )
 
-# ─── Header ───────────────────────────────────────────────────
+# Page header
 st.title("🏪 Apex Store Intelligence Dashboard")
 st.caption(f"Live analytics • Auto-refresh every {REFRESH_INTERVAL}s")
 
-# ─── Sidebar ──────────────────────────────────────────────────
+# Sidebar controls
 st.sidebar.header("Settings")
 store_id = st.sidebar.text_input("Store ID", value=DEFAULT_STORE)
 auto_refresh = st.sidebar.checkbox("Auto Refresh", value=True)
 
-# ─── Fetch Data ───────────────────────────────────────────────
+# API helpers
 def fetch(endpoint: str) -> dict | None:
     try:
         resp = requests.get(f"{API_URL}{endpoint}", timeout=5)
@@ -34,13 +34,13 @@ def fetch(endpoint: str) -> dict | None:
     return None
 
 
-# ─── Main Dashboard ───────────────────────────────────────────
+# Dashboard layout
 placeholder = st.empty()
 
 while True:
     with placeholder.container():
 
-        # ── Metrics ───────────────────────────────────────────
+        # Metrics
         metrics = fetch(f"/stores/{store_id}/metrics")
         funnel  = fetch(f"/stores/{store_id}/funnel")
         anomalies = fetch(f"/stores/{store_id}/anomalies")
@@ -58,7 +58,7 @@ while True:
 
         st.divider()
 
-        # ── Funnel ────────────────────────────────────────────
+        # Conversion funnel
         st.subheader("🔻 Conversion Funnel")
         if funnel and funnel.get("stages"):
             cols = st.columns(len(funnel["stages"]))
@@ -75,7 +75,7 @@ while True:
 
         st.divider()
 
-        # ── Zone Dwell ────────────────────────────────────────
+        # Zone dwell times
         st.subheader("🗺️ Zone Dwell Times")
         if metrics and metrics.get("avg_dwell_per_zone"):
             zones = metrics["avg_dwell_per_zone"]
@@ -91,7 +91,7 @@ while True:
 
         st.divider()
 
-        # ── Anomalies ─────────────────────────────────────────
+        # Active anomalies
         st.subheader("⚠️ Active Anomalies")
         if anomalies and anomalies.get("anomalies"):
             for a in anomalies["anomalies"]:
@@ -106,7 +106,7 @@ while True:
 
         st.divider()
 
-        # ── Health ────────────────────────────────────────────
+        # System health
         st.subheader("💓 System Health")
         if health:
             status_color = "🟢" if health["status"] == "OK" else "🔴"
@@ -117,7 +117,7 @@ while True:
         else:
             st.error("API unavailable")
 
-        # ── Last Updated ──────────────────────────────────────
+        # Refresh timestamp
         st.caption(f"Last updated: {datetime.now().strftime('%H:%M:%S')}")
 
     if not auto_refresh:

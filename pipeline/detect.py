@@ -11,7 +11,7 @@ from pipeline.staff_classifier import StaffClassifier
 from pipeline.emit import EventEmitter, make_event
 
 
-# ─── Zone Classifier ──────────────────────────────────────────
+# Zone utilities
 def load_store_layout(layout_path: str) -> dict:
     with open(layout_path, "r") as f:
         return json.load(f)
@@ -28,7 +28,7 @@ def get_zone_for_centroid(cx: float, cy: float, zones: list) -> str | None:
     return None
 
 
-# ─── Entry/Exit Direction ─────────────────────────────────────
+# Direction detection
 def get_direction(trajectory: list, frame_height: int) -> str | None:
     if len(trajectory) < 5:
         return None
@@ -42,7 +42,7 @@ def get_direction(trajectory: list, frame_height: int) -> str | None:
     return None
 
 
-# ─── Billing Queue Depth ──────────────────────────────────────
+# Billing queue helpers
 def get_billing_queue_depth(zone_dwell_tracker: dict) -> int:
     return len([
         v for v in zone_dwell_tracker
@@ -50,7 +50,7 @@ def get_billing_queue_depth(zone_dwell_tracker: dict) -> int:
     ])
 
 
-# ─── Main Detection Function ──────────────────────────────────
+# Main processing pipeline
 def process_clip(
     video_path: str,
     store_id: str,
@@ -60,7 +60,7 @@ def process_clip(
     clip_start_time: datetime,
     model_path: str = "yolov8n.pt",
     confidence_threshold: float = 0.5,
-    seen_visitors: set = None,  # Cross-camera deduplication
+    seen_visitors: set = None,  # Initialize shared visitor tracking
 ):
     print(f"\n🎬 Processing: {video_path}")
     print(f"   Store: {store_id} | Camera: {camera_id}")
@@ -69,17 +69,17 @@ def process_clip(
     if seen_visitors is None:
         seen_visitors = set()
 
-    # Load models
+    # Initialize models and helpers
     model     = YOLO(model_path)
     tracker   = ReIDTracker()
     staff_clf = StaffClassifier()
     emitter   = EventEmitter(output_path)
 
-    # Load store layout
+    # Load store configuration
     layout = load_store_layout(layout_path)
     zones  = layout.get("zones", [])
 
-    # Open video
+    # Open input video
     cap          = cv2.VideoCapture(video_path)
     fps          = cap.get(cv2.CAP_PROP_FPS) or 15.0
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -99,7 +99,7 @@ def process_clip(
         offset_sec = frame_idx / fps
         now        = clip_start_time + timedelta(seconds=offset_sec)
 
-        # ── Run YOLO Detection ─────────────────────────────────
+        # Run object detection
         results    = model(frame, classes=[0], verbose=False)
         detections = []
 
@@ -109,7 +109,7 @@ def process_clip(
                 bbox = tuple(box.xyxy[0].tolist())
                 detections.append((bbox, conf))
 
-        # ── Update Tracker ─────────────────────────────────────
+        # Update tracker state
         tracks = tracker.update(detections, now)
 
         for t in tracks:
@@ -118,18 +118,18 @@ def process_clip(
             conf       = t["confidence"]
             status     = t["status"]
             seq        = t["session_seq"]
-
-            # ── Staff Classification ───────────────────────────
+            
+            # Classify staff members
             is_staff, _ = staff_clf.classify(frame, bbox, visitor_id)
             tracker.set_staff(int(t["track_id"]), is_staff)
 
-            # ── Get Zone ───────────────────────────────────────
+            # Resolve visitor zone
             cx, cy  = t["centroid"]
             zone_id = get_zone_for_centroid(cx, cy, zones)
 
-            # ── Emit Events ────────────────────────────────────
+            # Generate events
 
-            # NEW ENTRY — cross-camera dedup
+            # New visitor entry
             if status == "NEW":
                 if visitor_id not in seen_visitors:
                     seen_visitors.add(visitor_id)
@@ -144,7 +144,7 @@ def process_clip(
                         session_seq=seq,
                     ))
 
-            # RE-ENTRY
+            # Re-entry event
             elif status == "REENTRY":
                 emitter.emit(make_event(
                     store_id=store_id,
@@ -174,7 +174,7 @@ def process_clip(
                             session_seq=seq,
                         ))
 
-                # ── Billing Queue Abandon Check ────────────────
+                # Check for queue abandonment
                 if visitor_id in billing_queue_visitors:
                     billing_queue_visitors.discard(visitor_id)
                     visitor_billing_entry_time.pop(visitor_id, None)
@@ -192,14 +192,14 @@ def process_clip(
                     ))
 
                 zone_dwell_tracker.pop(visitor_id, None)
-                seen_visitors.discard(visitor_id)  # Allow re-entry from other cameras
+                seen_visitors.discard(visitor_id)  # Remove visitor from active tracking
                 continue
 
-            # ── Zone Events ────────────────────────────────────
+            # Zone-related events
             if zone_id and status == "TRACKED":
                 prev = zone_dwell_tracker.get(visitor_id)
 
-                # Zone Enter
+                # Entered a new zone
                 if not prev or prev["zone"] != zone_id:
                     if prev:
                         emitter.emit(make_event(
@@ -231,7 +231,7 @@ def process_clip(
                         "last_dwell_emit": now,
                     }
 
-                    # ── Billing Queue Join ─────────────────────
+                    # Queue join handling
                     if zone_id == "BILLING" and not is_staff:
                         queue_depth = get_billing_queue_depth(zone_dwell_tracker)
                         if queue_depth > 0:
@@ -250,7 +250,7 @@ def process_clip(
                                 queue_depth=get_billing_queue_depth(zone_dwell_tracker),
                             ))
 
-                # Zone Dwell — every 30 seconds
+                # Emit dwell updates at 30-second intervals
                 else:
                     last_emit = prev["last_dwell_emit"]
                     dwell_ms  = int((now - prev["enter_time"]).total_seconds() * 1000)
@@ -279,7 +279,7 @@ def process_clip(
     print(f"✅ Done: {video_path} | Total events: {emitter.count}")
 
 
-# ─── CLI Entry Point ──────────────────────────────────────────
+# Command-line entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Apex Store Detection Pipeline")
     parser.add_argument("--video",      required=True, help="Path to video clip")

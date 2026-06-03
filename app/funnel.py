@@ -5,19 +5,19 @@ from app.models import FunnelResponse, FunnelStage
 from datetime import datetime, timezone, timedelta
 
 
-# ─── Get Conversion Funnel ────────────────────────────────────
+# Conversion Funnel
 def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=24)
 
-    # Base query — exclude staff
+    # Customer events only
     base_q = db.query(EventDB).filter(
         EventDB.store_id == store_id,
         EventDB.is_staff == False,
         EventDB.timestamp >= window_start,
     )
 
-    # ── Stage 1: Unique Visitors (ENTRY) ──────────────────────
+    # Stage 1 - Entry
     entry_visitors = (
         base_q
         .filter(EventDB.event_type == "ENTRY")
@@ -27,7 +27,7 @@ def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
     entry_visitors = set(v[0] for v in entry_visitors)
     entry_count = len(entry_visitors)
 
-    # ── Stage 2: Zone Visit ───────────────────────────────────
+    # Stage 2 - Zone Visit
     zone_visitors = (
         base_q
         .filter(EventDB.event_type.in_(["ZONE_ENTER", "ZONE_DWELL"]))
@@ -35,11 +35,11 @@ def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
         .all()
     )
     zone_visitors = set(v[0] for v in zone_visitors)
-    # Only count visitors who also entered
+    # Consider only valid visitors
     zone_visitors = zone_visitors & entry_visitors
     zone_count = len(zone_visitors)
 
-    # ── Stage 3: Billing Queue ────────────────────────────────
+    # Stage 3 - Billing Queue
     billing_visitors = (
         base_q
         .filter(
@@ -56,7 +56,7 @@ def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
     billing_visitors = billing_visitors & entry_visitors
     billing_count = len(billing_visitors)
 
-    # ── Stage 4: Purchase ─────────────────────────────────────
+    # Stage 4 - Purchase
     transactions = db.query(TransactionDB).filter(
         TransactionDB.store_id == store_id,
         TransactionDB.timestamp >= window_start,
@@ -81,7 +81,7 @@ def get_store_funnel(store_id: str, db: Session) -> FunnelResponse:
     purchased_visitors = purchased_visitors & entry_visitors
     purchase_count = len(purchased_visitors)
 
-    # ── Calculate Dropoff % ───────────────────────────────────
+    # Drop-off Calculation
     def dropoff(current: int, previous: int) -> float:
         if previous == 0:
             return 0.0

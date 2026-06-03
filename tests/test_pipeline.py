@@ -1,10 +1,3 @@
-# PROMPT: Generate pytest tests for the detection pipeline.
-# Tests should cover: event schema validation, entry/exit detection,
-# staff classification, re-entry detection, group entry counting,
-# zone dwell emission every 30s, confidence flagging.
-# CHANGES MADE: Used mock frames instead of real video,
-# adjusted tracker thresholds to match our ReIDTracker defaults.
-
 import pytest
 import uuid
 import numpy as np
@@ -15,7 +8,7 @@ from pipeline.tracker import ReIDTracker
 from pipeline.staff_classifier import StaffClassifier
 
 
-# ─── Tests: Event Schema ──────────────────────────────────────
+# Event schema tests
 def test_make_event_schema():
     event = make_event(
         store_id="STORE_BLR_002",
@@ -60,7 +53,7 @@ def test_event_timestamp_format():
     assert "Z" in ts
 
 
-# ─── Tests: Tracker ───────────────────────────────────────────
+# Tracker tests
 def test_new_detection_creates_entry():
     tracker = ReIDTracker()
     now = datetime.now(timezone.utc)
@@ -73,7 +66,7 @@ def test_new_detection_creates_entry():
 def test_group_entry_counts_individuals():
     tracker = ReIDTracker()
     now = datetime.now(timezone.utc)
-    # 3 people entering simultaneously
+    # Simulate three simultaneous detections
     detections = [
         ((100, 100, 200, 300), 0.9),
         ((250, 100, 350, 300), 0.85),
@@ -88,12 +81,12 @@ def test_tracked_person_stays_same_visitor_id():
     tracker = ReIDTracker()
     now = datetime.now(timezone.utc)
 
-    # Frame 1 — detect person
+    # Initial detection
     detections = [((100, 100, 200, 300), 0.9)]
     r1 = tracker.update(detections, now)
     visitor_id_1 = r1[0]["visitor_id"]
 
-    # Frame 2 — same person slightly moved
+    # Same person with a small position change
     detections2 = [((105, 105, 205, 305), 0.9)]
     r2 = tracker.update(detections2, now + timedelta(seconds=1))
     visitor_id_2 = r2[0]["visitor_id"]
@@ -105,10 +98,10 @@ def test_exit_after_lost_frames():
     tracker = ReIDTracker(max_lost_frames=3)
     now = datetime.now(timezone.utc)
 
-    # Detect person
+    # Register initial detection
     tracker.update([((100, 100, 200, 300), 0.9)], now)
 
-    # No detection for max_lost_frames + 1 frames
+    # Advance frames without detections
     results = []
     for i in range(5):
         r = tracker.update([], now + timedelta(seconds=i))
@@ -122,11 +115,11 @@ def test_reentry_detection():
     tracker = ReIDTracker(reentry_window_sec=300)
     now = datetime.now(timezone.utc)
 
-    # First entry
+    # Initial visit
     r1 = tracker.update([((100, 100, 200, 300), 0.9)], now)
     visitor_id = r1[0]["visitor_id"]
 
-    # Re-entry — match tracker.py format (exit_time, last_centroid)
+    # Simulate a recent exit record
     tracker2 = ReIDTracker(reentry_window_sec=300)
     tracker2.exited_visitors[visitor_id] = (now, (150.0, 200.0))
 
@@ -134,17 +127,17 @@ def test_reentry_detection():
     assert len(r2) == 1
 
 
-# ─── Tests: Staff Classifier ──────────────────────────────────
+# Staff classifier tests
 def test_staff_classifier_blue_uniform():
     classifier = StaffClassifier(threshold=0.3)
 
-    # Create fake blue uniform frame
+    # Synthetic frame with blue-colored region
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     frame[120:360, 100:200] = [200, 100, 50]  # BGR blue-ish
 
     bbox = (100, 100, 200, 400)
     is_staff, conf = classifier.classify(frame, bbox, "VIS_STAFF_001")
-    # Just check it runs without error
+    # Verify classifier returns valid outputs
     assert isinstance(is_staff, bool)
     assert 0.0 <= conf <= 1.0
 
@@ -154,14 +147,14 @@ def test_staff_cache_consistency():
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     bbox = (100, 100, 200, 400)
 
-    # First classification
+    # Initial classification
     is_staff_1, _ = classifier.classify(frame, bbox, "VIS_001")
-    # Second call — should return same result from cache
+    # Repeat classification for cached visitor
     is_staff_2, _ = classifier.classify(frame, bbox, "VIS_001")
     assert is_staff_1 == is_staff_2
 
 
-# ─── Tests: EventEmitter ──────────────────────────────────────
+# Event emitter tests
 def test_emitter_writes_jsonl(tmp_path):
     output = str(tmp_path / "events.jsonl")
     emitter = EventEmitter(output)
