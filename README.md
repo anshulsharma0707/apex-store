@@ -4,6 +4,8 @@ Real-time retail analytics pipeline — from raw CCTV footage to live store metr
 
 Built for Apex Retail's physical stores to close the offline analytics gap.
 
+> **Context:** Built as part of Purple.com's SDE-1 hiring process — Round 2, a take-home assessment on HackerEarth. Round 1 covered 1 DSA problem, 1 MySQL problem, and 11 MCQs.
+
 ## Note on Sample Data
 
 This repository includes small sample files for testing:
